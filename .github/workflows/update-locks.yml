@@ -47,12 +47,13 @@ jobs:
       # 5. 差分があればコミット
       - name: Commit and Push changes
         run: |
-          if [ -n "$(git status --porcelain)" ]; then
+          # Cargo.lock または flake.lock に変更があるかだけをチェック
+          if git diff --name-only | grep -E '^(Cargo\.lock|flake\.lock)$'; then
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"
             git add Cargo.lock flake.lock
             git commit -m "chore: auto-update lock files [skip ci]"
             git push origin HEAD:${{ github.ref }}
           else
-            echo "No changes to commit"
+            echo "No lock file changes to commit"
           fi
