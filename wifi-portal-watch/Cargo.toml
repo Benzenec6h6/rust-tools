@@ -1,0 +1,11 @@
+[package]
+name = "wifi-portal-watch"  # プロジェクト名（好きな名前でOK）
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zbus = "4.0"
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+notify-rust = "4"
+open = "5"

@@ -1,0 +1,8 @@
+[package]
+name = "sys-controls"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# OSレベルの超高速ファイルロックに使用
+fs2 = "0.4"

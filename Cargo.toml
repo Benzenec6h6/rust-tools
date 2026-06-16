@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "sys-controls",
+    "wifi-portal-watch",
+    "drop-terminal",
+]
+resolver = "2"
+
+# 複数のツールで共通して使うライブラリのバージョンをここで一括管理すると楽です
+[workspace.dependencies]
+# ここに共通で使いそうなものを書いておくと各子パッケージでバージョン指定を省略できます
+# 例: tokio = "1"

@@ -1,0 +1,6 @@
+新規プロジェクト
+cargo init my-project
+cd my-project
+
+実行
+cargo run

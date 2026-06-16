@@ -1,0 +1,58 @@
+name: Update Lock Files & Verify Build
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Nixのインストール（これが最初にあるとRustのセットアップも楽になります）
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 1. Rust環境のセットアップ (Nix環境内蔵のものを使うならこのステップはスキップも可能)
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Enable Rust Cache
+        uses: swatinem/rust-cache@v2
+
+      # 2. アップデート
+      - name: Update Cargo.lock
+        run: cargo update
+
+      - name: Update flake.lock
+        run: nix flake update
+
+      # 3. 【修正】Nix環境下でチェックを実行
+      # これにより、dbusやopensslがないというエラーを回避できます
+      - name: Run Build Check (via Nix)
+        run: nix develop --command cargo check --release
+
+      # 4. 【追加】Nixのパッケージとしてビルドできるかも確認
+      - name: Verify Nix Build
+        run: nix build
+
+      # 5. 差分があればコミット
+      - name: Commit and Push changes
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git config --local user.name "github-actions[bot]"
+            git add Cargo.lock flake.lock
+            git commit -m "chore: auto-update lock files [skip ci]"
+            git push origin HEAD:${{ github.ref }}
+          else
+            echo "No changes to commit"
+          fi
