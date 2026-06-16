@@ -53,7 +53,7 @@ async fn check_status(status: u32) {
                 .show();
 
             // 実際にはここでブラウザを開く
-            // let _ = open::that("http://neverssl.com");
+            let _ = open::that("http://neverssl.com");
         }
         4 => println!("Connectivity is FULL"),
         _ => println!("Connectivity status: {}", status),
