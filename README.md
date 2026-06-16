@@ -1,100 +1,113 @@
-# sys-controls
+# Rust OS Tools
 
-A robust, lightweight system control utility for Wayland/Hyprland, written in Rust.
+A collection of lightweight, high‑performance system utilities for **NixOS / Hyprland**, unified in a single Rust workspace for maximum efficiency and maintainability.
 
-## The Story: Why this exists
-This tool was born out of a necessity to solve a specific hardware-software conflict on an HP OMEN 16 laptop running NixOS. A hardware or driver-level anomaly caused the brightness keys to trigger rapid-fire events (dozens of "Unknown key" signals per second, scan code 0xab).
+---
 
-When using traditional shell scripts linked to these keys:
+## 📦 Tools in this Repository
 
-- Every single key event spawned a new shell process or systemd service.
-- Each process sent a D-Bus message via notify-send.
-- SwayNC (the notification center) attempted to process and render hundreds of icons simultaneously, causing a massive spike in D-Bus traffic and GPU load.
-- This led to a "Session Hang": the screen would go pitch black and the graphical interface became completely unresponsive. While the system remained alive in the background (the kernel was still responsive), the UI could only be recovered by manually switching to another TTY (e.g., Ctrl+Alt+F3) and back to the graphical session (Ctrl+Alt+F2) to force a display reset.
+| Tool                | Purpose                     | Why Rust?                                                                                                    |
+|---------------------|----------------------------|--------------------------------------------------------------------------------------------------------------|
+| **sys-controls**   | Brightness & Volume control | Prevents *“Notification Storms”* and UI freezes via atomic file locking.                                      |
+| **drop-terminal**  | Scratchpad terminal        | Guarantees UI stability. Fixes a bug where spawning a terminal over heavy apps (e.g., browsers) caused workspace flickering. |
+| **wifi-portal-watch** | Network monitoring          | Replaces brittle shell logic with robust D‑Bus integration for reliable captive‑portal detection.            |
 
-## The Solution: Rust to the Rescue
+---
 
-`sys-controls` prevents this "Notification Storm" using an atomic file-locking mechanism:
+## 🛠 Tool Details
 
-- **Atomic Locking:** Upon execution, the tool attempts to acquire an exclusive lock on a temporary file.
-- **Rapid-fire Prevention:** If another instance is already running (during a key spam event), the new process exits immediately (within milliseconds) without calling heavy 
-sub-processes like `brightnessctl` or `notify-send`.
-- **Throttling:** A mandatory cooldown period ensures that system notifications are sent at a maximum frequency that the desktop environment can safely handle.
+### ☀️ 🔊 `sys-controls` (Brightness & Volume)
 
-## Features
+> **Problem** – On an HP OMEN 16 laptop the brightness keys generated dozens of events per second.  
+> Traditional shell scripts spawned hundreds of `notify-send` processes, saturating D‑Bus and hanging the whole graphical session.
 
-- **☀️ Brightness Control**: Smooth increment/decrement with minimum value protection (prevents total blackout).
-- **🔊 Volume & Mic Control**: Handles speakers and microphones using `pamixer`.
-- **🎧 Smart Icons**: Automatically detects headphone connection status to display the correct symbolic icon.
-- **🔄 Notification Sync**: Uses sync-IDs to ensure notifications replace each other instead of stacking up.
-- **📦 BusyBox Style**: A single binary that changes behavior based on its symlink name (brightness or volume).
+**Solution** – `sys-controls` uses **atomic file locking** (`fs2`). If an instance is already running, new invocations exit within milliseconds, throttling notifications to a safe rate 
+for the desktop environment.
 
-## Prerequisites
+---
 
-The following tools must be available in your `$PATH`:
+### ⌨️ `drop-terminal` (Dropdown Terminal)
 
-- `brightnessctl`
-- `pamixer`
-- `alsa-utils` (for amixer headphone detection)
-- `libnotify` (for `notify-send`)
+A Hyprland‑specific dropdown terminal manager with smooth animations.
 
-## Usage
+*Why Rust?*  
+The original Bash version was logically correct but caused UI misbehaviour: toggling the terminal over resource‑heavy applications (e.g., browsers) occasionally made the workspace 
+glitch or the browser lose focus. Rust’s faster execution and precise timing for Hyprland IPC calls removed these race conditions, delivering a rock‑solid UI experience.
 
-This tool is designed to be called via symlinks.
+---
 
-### Commands
-```markdown
-| Symlink       | Arguments          | Description                                                                 |
-|---------------|--------------------|-----------------------------------------------------------------------------|
-| brightness    | --inc / --dec      | Adjust brightness by 5%                                                     |
-| brightness    | --get              | Get current brightness value                                                 |
-| volume        | --inc / --dec      | Adjust volume by 5% (unmutes automatically)                                 |
-| volume        | --toggle           | Toggle mute/unmute                                                           |
-| volume        | --mic-inc          | Adjust microphone volume                                                    |
+### 🌐 `wifi-portal-watch` (Wi‑Fi Portal Monitor)
 
-### Example Hyprland Binding
-```bash
-# Use 'binde' for repeat, sys-controls will handle the throttling
-bind = , XF86MonBrightnessUp, exec, brightness --inc
-bind = , XF86AudioRaiseVolume, exec, volume --inc
-```
+Monitors network changes via D‑Bus and automatically handles captive‑portal detection.
 
-## Installation (Nix Flake)
+*Why Rust?*  
+By using `zbus` to listen directly to NetworkManager events, the tool avoids the overhead and unreliability of polling‑based shell scripts, providing a clean, event‑driven solution.
 
-Add this flake to your inputs:
+---
 
-```nix
-{
-  inputs.sys-controls.url = "github:youruser/sys-controls";
-}
-```
+## 🚀 Installation (Nix Flake)
 
-Then add it to your `home.packages`:
+Since the utilities share a single workspace, a single flake input ships all binaries.
 
-```nix
-home.packages = [ inputs.sys-controls.packages.${pkgs.system}.default ];
-```
+1. **Add to your inputs**
 
-## Development
-
-Built with Rust for performance and safety.
-
-### Building the Tool
-
-1. Clone this repository.
-2. Build the tool:
-   ```bash
-   cargo build --release
-   ```
-3. Set up local testing symlinks:
-   ```bash
-   ln -s target/release/sys-controls brightness
-   ln -s target/release/sys-controls volume
+   ```nix
+   {
+     inputs.rust-tools.url = "github:youruser/rust-tools";
+   }
    ```
 
-## Tested Environment
+2. **Add to your environment**
 
-- **Model:** HP OMEN Laptop 16-k0xxx
-- **OS:** NixOS (Unstable/26.05)
-- **Kernel:** Linux 6.18.x-cachyos
-- **WM:** Hyprland 0.55.2
+   ```nix
+   environment.systemPackages = [
+     inputs.rust-tools.packages.${pkgs.system}.default
+   ];
+   ```
+
+This installs `sys-controls`, `drop-terminal`, and `wifi-portal-watch` simultaneously.
+
+---
+
+## 🛠 Development & Maintenance
+
+### Workflow
+
+- **Update Locks** – GitHub Actions automatically refresh `Cargo.lock` and `flake.lock` every Monday.
+- **Build Everything**
+
+  ```bash
+  nix build
+  ```
+
+- **Enter Development Shell**
+
+  ```bash
+  nix develop
+  # Provides: rustc, cargo, clippy, rust-analyzer, etc.
+  ```
+
+### Binary Locations (after `nix build`)
+
+```
+result/bin/
+├── sys-controls
+├── drop-terminal
+└── wifi-portal-watch
+```
+
+---
+
+## 🖥 Tested Environment
+
+| Component | Details |
+|----------|---------|
+| **Model** | HP OMEN Laptop 16‑k0xxx |
+| **OS**    | NixOS (Unstable / 25.05) |
+| **Kernel**| Linux 6.18.x‑cachyos (needed for specific ACPI/input event handling) |
+| **WM**    | Hyprland 0.55.2 (Wayland) |
+| **Rust Edition** | 2024 |
+
+---
+
+Feel free to open issues or submit pull requests if you encounter bugs or have ideas for new utilities!
