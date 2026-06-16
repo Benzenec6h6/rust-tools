@@ -178,7 +178,7 @@ fn handle_volume(arg: &str) {
                 pamixer(&["-u"]);
                 pamixer(&["-i", "1", "--allow-boost"]);
             }
-            "--dec-fine" | "--mic-mic-dec-fine" => {
+            "--dec-fine" | "--mic-dec-fine" => {
                 pamixer(&["-u"]);
                 pamixer(&["-d", "1"]);
             }
