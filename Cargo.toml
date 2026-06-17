@@ -3,6 +3,7 @@ members = [
     "sys-controls",
     "wifi-portal-watch",
     "drop-terminal",
+    "storage-monitor"
 ]
 resolver = "2"
 
