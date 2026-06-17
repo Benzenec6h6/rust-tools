@@ -52,19 +52,18 @@
 
         # ビルド後の処理
         postInstall = ''
-          # 1. sys-controls のシンボリックリンク作成
-          # $out/bin/sys-controls は既に存在する前提
-          ln -s sys-controls $out/bin/volume
-          ln -s sys-controls $out/bin/brightness
-
-          # 2. 各バイナリが外部コマンドを見つけられるようにラップする
-          # PATH を各バイナリの実行時環境に追加
-          for bin in drop-terminal sys-controls wifi-portal-watch volume brightness; do
+          # 1. まず、全ての実体バイナリをラップして PATH を通す
+          for bin in sys-controls drop-terminal wifi-portal-watch; do
             if [ -e "$out/bin/$bin" ]; then
               wrapProgram "$out/bin/$bin" \
                 --prefix PATH : ${pkgs.lib.makeBinPath externalBinaries}
             fi
           done
+
+          # 2. ラップ済みの sys-controls に対してシンボリックリンクを貼る
+          # これにより volume / brightness を叩いても正しくラップされた PATH が使われる
+          ln -sf sys-controls $out/bin/volume
+          ln -sf sys-controls $out/bin/brightness
         '';
       };
 
