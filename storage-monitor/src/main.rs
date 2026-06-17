@@ -45,7 +45,7 @@ fn main() {
 
     // 3. 通知の実行
     // sudo -u <user> を使い、かつデスクトップ環境に必要な環境変数を渡す
-    let status = Command::new("sudo")
+    let status = Command::new("/run/wrappers/bin/sudo")
         .arg("-u")
         .arg(&user_name)
         .env("DISPLAY", ":0")
