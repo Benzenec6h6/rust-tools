@@ -30,7 +30,6 @@ struct Workspace {
 
 #[derive(Deserialize, Debug)]
 struct HyprMonitor {
-    _id: i32,
     name: String,
     focused: bool,
     x: i32,
