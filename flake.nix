@@ -1,5 +1,6 @@
+
 {
-  description = "Rust tools workspace";
+  description = "Rust tools workspace (sys-controls, drop-terminal, wifi-portal-watch)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -14,63 +15,75 @@
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
 
-      # 共通の依存関係を定義
-      runtimeDeps = [
-        pkgs.dbus
-        pkgs.openssl
-        pkgs.libnotify
+      # 依存関係の定義
+      runtimeLibs = with pkgs; [
+        dbus
+        openssl
+        libnotify
       ];
 
-      buildDeps = [
-        pkgs.pkg-config
+      buildDeps = with pkgs; [
+        pkg-config
+        makeWrapper # シンボリックリンク作成とパスのラップに使用
       ];
 
-      externalTools = [
-        pkgs.brightnessctl
-        pkgs.pamixer
-        pkgs.alsa-utils
-        pkgs.hyprland
+      # ツールが依存する外部コマンド
+      externalBinaries = with pkgs; [
+        brightnessctl
+        pamixer
+        alsa-utils
+        libnotify
+        hyprland
+        networkmanager # wifi-portal-watch用
       ];
     in {
-      # 1. nix build でビルドできるようにする設定
       packages.default = pkgs.rustPlatform.buildRustPackage {
-        pname = "my-rust-tools";
+        pname = "benzen-rust-tools";
         version = "0.1.0";
-        src = ./.; # ワークスペースのルートを指定
+        src = ./.;
 
-        # workspace内のCargo.lockを参照
+        # ワークスペース全体のCargo.lockを使用
         cargoLock = {
           lockFile = ./Cargo.lock;
         };
 
         nativeBuildInputs = buildDeps;
-        buildInputs = runtimeDeps;
+        buildInputs = runtimeLibs;
 
-        # テスト時にDBusなどのサービスが必要な場合はスキップ設定が必要なこともありますが、
-        # 基本的にはこれで全バイナリがコンパイルされます。
+        # ビルド後の処理
+        postInstall = ''
+          # 1. sys-controls のシンボリックリンク作成
+          # $out/bin/sys-controls は既に存在する前提
+          ln -s sys-controls $out/bin/volume
+          ln -s sys-controls $out/bin/brightness
+
+          # 2. 各バイナリが外部コマンドを見つけられるようにラップする
+          # PATH を各バイナリの実行時環境に追加
+          for bin in drop-terminal sys-controls wifi-portal-watch volume brightness; do
+            if [ -e "$out/bin/$bin" ]; then
+              wrapProgram "$out/bin/$bin" \
+                --prefix PATH : ${pkgs.lib.makeBinPath externalBinaries}
+            fi
+          done
+        '';
       };
 
-      # 2. 開発環境 (nix develop)
+      # 開発環境 (nix develop)
       devShells.default = pkgs.mkShell {
-        nativeBuildInputs =
-          [
-            pkgs.cargo
-            pkgs.rustc
-            pkgs.rust-analyzer
-            pkgs.rustfmt
-            pkgs.clippy
-          ]
-          ++ buildDeps;
+        nativeBuildInputs = with pkgs; [
+          cargo
+          rustc
+          rust-analyzer
+          rustfmt
+          clippy
+          pkg-config
+        ];
 
-        buildInputs = runtimeDeps ++ externalTools;
+        buildInputs = runtimeLibs ++ externalBinaries;
 
-        # Rustのライブラリが見つけやすくするための環境変数
         shellHook = ''
-          export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath runtimeDeps}:$LD_LIBRARY_PATH"
-          export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPath "lib/pkgconfig" buildDeps}"
-
-          echo "🦀 Rust Workspace Environment Loaded"
-          echo "Available tools: sys-controls, wifi-portal-watch"
+          export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath runtimeLibs}:$LD_LIBRARY_PATH"
+          echo "🦀 Rust Workspace: sys-controls, drop-terminal, wifi-portal-watch"
         '';
       };
     });
