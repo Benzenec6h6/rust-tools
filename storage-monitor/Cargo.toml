@@ -1,0 +1,7 @@
+[package]
+name = "storage-monitor"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# 特に追加なし
