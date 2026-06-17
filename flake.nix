@@ -28,6 +28,7 @@
 
       # ツールが依存する外部コマンド
       externalBinaries = with pkgs; [
+        sudo-rs
         brightnessctl
         pamixer
         alsa-utils
@@ -53,7 +54,7 @@
         # ビルド後の処理
         postInstall = ''
           # 1. まず、全ての実体バイナリをラップして PATH を通す
-          for bin in sys-controls drop-terminal wifi-portal-watch; do
+          for bin in sys-controls drop-terminal wifi-portal-watch storage-monitor; do
             if [ -e "$out/bin/$bin" ]; then
               wrapProgram "$out/bin/$bin" \
                 --prefix PATH : ${pkgs.lib.makeBinPath externalBinaries}
