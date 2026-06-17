@@ -28,7 +28,6 @@
 
       # ツールが依存する外部コマンド
       externalBinaries = with pkgs; [
-        sudo-rs
         brightnessctl
         pamixer
         alsa-utils
