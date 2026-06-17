@@ -1,4 +1,3 @@
-
 {
   description = "Rust tools workspace (sys-controls, drop-terminal, wifi-portal-watch)";
 
@@ -34,6 +33,7 @@
         alsa-utils
         libnotify
         hyprland
+        xdg-utils
         networkmanager # wifi-portal-watch用
       ];
     in {
