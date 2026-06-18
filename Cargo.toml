@@ -4,6 +4,7 @@ members = [
     "wifi-portal-watch",
     "drop-terminal",
     "storage-monitor",
+    "weather-fetcher",
 ]
 resolver = "2"
 
