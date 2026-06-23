@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "cava-formatter",
     "sys-controls",
     "wifi-portal-watch",
     "drop-terminal",

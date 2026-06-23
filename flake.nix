@@ -35,6 +35,7 @@
         hyprland
         xdg-utils
         networkmanager # wifi-portal-watch用
+        cava
       ];
     in {
       packages.default = pkgs.rustPlatform.buildRustPackage {
@@ -53,7 +54,7 @@
         # ビルド後の処理
         postInstall = ''
           # 1. まず、全ての実体バイナリをラップして PATH を通す
-          for bin in sys-controls drop-terminal wifi-portal-watch storage-monitor weather-fetcher; do
+          for bin in sys-controls drop-terminal wifi-portal-watch storage-monitor weather-fetcher cava-formatter; do
             if [ -e "$out/bin/$bin" ]; then
               wrapProgram "$out/bin/$bin" \
                 --prefix PATH : ${pkgs.lib.makeBinPath externalBinaries} \
