@@ -63,7 +63,7 @@ fn main() -> io::Result<()> {
 
     const BARS_COUNT: usize = 10;
     const STEP: u8 = 255 / 7;
-    const BAR_CHARS: [&str; 8] = [" ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+    const BAR_CHARS: [&str; 8] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
 
     let mut child = Command::new("cava")
         .arg("-p")
