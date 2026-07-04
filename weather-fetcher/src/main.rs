@@ -47,6 +47,8 @@ struct WaybarOutput {
 }
 
 fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let force_refresh = args.contains(&"--force".to_string());
     // 1. 環境変数から設定を取得 (Nixのラップ機能で流し込む)
     let city = std::env::var("CITY_NAME").unwrap_or_else(|_| "Unknown".to_string());
     let lat = std::env::var("LAT").context("LAT is not set")?;
@@ -60,13 +62,17 @@ fn main() -> Result<()> {
     fs::create_dir_all(&cache_dir)?;
 
     // 2. キャッシュチェック (30分)
-    if let Ok(metadata) = fs::metadata(&cache_path) {
-        if let Ok(modified) = metadata.modified() {
-            if SystemTime::now().duration_since(modified)?.as_secs() < 1800 {
-                let cached = fs::read_to_string(&cache_path)?;
-                println!("{}", cached);
-                return Ok(());
-            }
+    if !force_refresh {
+        let cached_content = fs::metadata(&cache_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|mod_time| SystemTime::now().duration_since(mod_time).ok())
+            .filter(|duration| duration.as_secs() < 1800)
+            .and_then(|_| fs::read_to_string(&cache_path).ok());
+
+        if let Some(content) = cached_content {
+            println!("{}", content);
+            return Ok(());
         }
     }
 

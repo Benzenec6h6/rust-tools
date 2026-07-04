@@ -1,8 +1,8 @@
+use futures_util::stream::StreamExt;
 use notify_rust::Notification;
 use std::error::Error;
+use std::process::Command;
 use zbus::proxy;
-// StreamExt をインポートすることで .next() が使えるようになります
-use futures_util::stream::StreamExt;
 
 #[proxy(
     interface = "org.freedesktop.NetworkManager",
@@ -42,20 +42,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn check_status(status: u32) {
-    // NM_CONNECTIVITY_PORTAL = 2
     match status {
         2 => {
-            println!("Portal detected! Showing notification...");
+            println!("Portal detected!");
             let _ = Notification::new()
                 .summary("Wi-Fi Login Required")
-                .body("Captive portal detected. Click to open browser.")
-                .icon("network-wired-symbolic")
+                .body("Captive portal detected.")
                 .show();
-
-            // 実際にはここでブラウザを開く
             let _ = open::that("http://neverssl.com");
         }
-        4 => println!("Connectivity is FULL"),
+        4 => {
+            println!("Connectivity is FULL. Signaling Waybar...");
+            // Waybarに対して signal 8 (SIGRTMIN+8) を送る
+            // これにより Waybar は interval を待たずに exec を実行します
+            let _ = Command::new("pkill").args(["-RTMIN+8", "waybar"]).spawn();
+        }
         _ => println!("Connectivity status: {}", status),
     }
 }
