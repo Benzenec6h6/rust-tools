@@ -47,7 +47,8 @@ async fn check_status(status: u32) {
             println!("Portal detected!");
             let _ = Notification::new()
                 .summary("Wi-Fi Login Required")
-                .body("Captive portal detected.")
+                .body("Captive portal detected. Click to open browser.")
+                .icon("network-wired-symbolic")
                 .show();
             let _ = open::that("http://neverssl.com");
         }
