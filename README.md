@@ -53,7 +53,7 @@ Since the utilities share a single workspace, a single flake input ships all bin
 
    ```nix
    {
-     inputs.rust-tools.url = "github:youruser/rust-tools";
+     inputs.rust-tools.url = "github:Benzenec6h6/rust-tools";
    }
    ```
 
