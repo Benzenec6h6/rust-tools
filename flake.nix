@@ -29,7 +29,7 @@
       # ツールが依存する外部コマンド
       externalBinaries = with pkgs; [
         brightnessctl
-        pamixer
+        wireplumber
         alsa-utils
         libnotify
         hyprland
