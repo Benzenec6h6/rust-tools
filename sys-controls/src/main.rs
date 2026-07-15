@@ -145,49 +145,73 @@ fn is_headphones_connected() -> bool {
 fn handle_volume(arg: &str) {
     if let Some(_lock) = try_lock_process("volume") {
         let is_mic = arg.contains("mic");
-        let source_flag = if is_mic {
-            vec!["--default-source"]
+
+        // 操作対象の決定
+        let target = if is_mic {
+            "@DEFAULT_AUDIO_SOURCE@"
         } else {
-            vec![]
+            "@DEFAULT_AUDIO_SINK@"
         };
 
-        // ★ 修正点: セミコロンを外し、run_cmd の評価結果（String）を返すように変更
-        let pamixer = |extra_args: &[&str]| -> String {
-            let mut final_args = source_flag.clone();
-            final_args.extend_from_slice(extra_args);
-            run_cmd("pamixer", &final_args)
+        // 共通のコマンド実行ヘルパー
+        let wpctl_set = |args: &[&str]| {
+            let mut final_args = vec![];
+            final_args.extend_from_slice(args);
+            run_cmd("wpctl", &final_args);
         };
 
+        // 1. 音量・ミュートの変更アクションの実行
         match arg {
-            "--get" | "--get-mic" => {
-                println!("{}", pamixer(&["--get-volume"]));
-                return;
-            }
             "--toggle" | "--toggle-mic" => {
-                pamixer(&["-t"]);
+                wpctl_set(&["set-mute", target, "toggle"]);
             }
             "--inc" | "--mic-inc" => {
-                pamixer(&["-u"]);
-                pamixer(&["-i", "5", "--allow-boost"]);
+                wpctl_set(&["set-mute", target, "0"]); // ミュート解除
+                wpctl_set(&["set-volume", "-l", "1.5", target, "0.05+"]); // --allow-boost の代わりに -l 1.5 (150%上限)
             }
             "--dec" | "--mic-dec" => {
-                pamixer(&["-u"]);
-                pamixer(&["-d", "5"]);
+                wpctl_set(&["set-mute", target, "0"]);
+                wpctl_set(&["set-volume", target, "0.05-"]);
             }
             "--inc-fine" | "--mic-inc-fine" => {
-                pamixer(&["-u"]);
-                pamixer(&["-i", "1", "--allow-boost"]);
+                wpctl_set(&["set-mute", target, "0"]);
+                wpctl_set(&["set-volume", "-l", "1.5", target, "0.01+"]);
             }
             "--dec-fine" | "--mic-dec-fine" => {
-                pamixer(&["-u"]);
-                pamixer(&["-d", "1"]);
+                wpctl_set(&["set-mute", target, "0"]);
+                wpctl_set(&["set-volume", target, "0.01-"]);
             }
-            _ => return,
+            _ => {}
         }
 
-        let vol = pamixer(&["--get-volume"]);
-        let muted = pamixer(&["--get-mute"]) == "true";
+        // 2. 現在の状態を取得 (パース処理)
+        // wpctl get-volume の出力例: "Volume: 0.40" または "Volume: 0.20 [MUTED]"
+        let raw_status = run_cmd("wpctl", &["get-volume", target]);
 
+        if arg == "--get" || arg == "--get-mic" {
+            // --get 要求時は純粋な数値（%）だけを標準出力して終了
+            let vol_str = raw_status.split_whitespace().nth(1).unwrap_or("0.00");
+            if let Ok(vol_f) = vol_str.parse::<f32>() {
+                println!("{:.0}", vol_f * 100.0);
+            } else {
+                println!("0");
+            }
+            return;
+        }
+
+        let muted = raw_status.contains("[MUTED]");
+
+        // 文字列から音量（%）を計算
+        let vol = {
+            let vol_str = raw_status.split_whitespace().nth(1).unwrap_or("0.00");
+            if let Ok(vol_f) = vol_str.parse::<f32>() {
+                format!("{:.0}", vol_f * 100.0)
+            } else {
+                "0".to_string()
+            }
+        };
+
+        // 3. 通知用アイコン・ラベルの生成 (既存のロジックを流用)
         let (icon, label, id, sync_key) = if !is_mic {
             let icon = if muted {
                 if is_headphones_connected() {
