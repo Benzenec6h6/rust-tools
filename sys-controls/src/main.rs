@@ -126,17 +126,10 @@ fn handle_brightness(arg: &str) {
 // 🔊 音量・マイク（Volume）セクション
 // ====================================================================
 fn is_headphones_connected() -> bool {
-    let out = run_cmd("amixer", &["contents"]);
-    let mut lines = out.lines();
-    while let Some(line) = lines.next() {
-        if line.to_lowercase().contains("headphone") {
-            for _ in 0..2 {
-                if let Some(next_line) = lines.next() {
-                    if next_line.contains("values=on") {
-                        return true;
-                    }
-                }
-            }
+    let out = run_cmd("wpctl", &["status"]);
+    for line in out.lines() {
+        if line.contains("[*]") && line.to_lowercase().contains("headphone") {
+            return true;
         }
     }
     false
