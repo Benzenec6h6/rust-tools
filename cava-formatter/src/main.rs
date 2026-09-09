@@ -86,8 +86,11 @@ fn main() -> io::Result<()> {
             let index = (value / STEP).min(7) as usize;
             line.push_str(BAR_CHARS[index]);
         }
-        writeln!(stdout_handle, "{}", line)?;
-        stdout_handle.flush()?;
+        if line != last_line {
+            writeln!(stdout_handle, "{}", line)?;
+            stdout_handle.flush()?;
+            last_line = line;
+        }
     }
 
     let _ = child.kill();
