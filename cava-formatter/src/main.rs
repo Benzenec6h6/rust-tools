@@ -76,6 +76,7 @@ fn main() -> io::Result<()> {
     let stdout = io::stdout();
     let mut stdout_handle = BufWriter::new(stdout.lock());
     let mut buffer = vec![0u8; BARS_COUNT];
+    let mut last_line = String::new();
 
     loop {
         if cava_reader.read_exact(&mut buffer).is_err() {
