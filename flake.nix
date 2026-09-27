@@ -30,7 +30,6 @@
         brightnessctl
         wireplumber
         alsa-utils
-        libnotify
         hyprland
         xdg-utils
         networkmanager # wifi-portal-watch用

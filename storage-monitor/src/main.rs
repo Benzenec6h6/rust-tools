@@ -1,44 +1,54 @@
+use notify_rust::Notification;
 use std::env;
 use std::fs;
-use std::process::Command;
+use std::time::Duration;
+
+// C言語の標準システムコールを宣言（rootからの権限降格用）
+unsafe extern "C" {
+    fn setgid(gid: u32) -> i32;
+    fn setuid(uid: u32) -> i32;
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let dev_name = args.get(1).map(|s| s.as_str()).unwrap_or("unknown");
 
-    // 1. ユーザーIDの特定
-    let uid = fs::read_dir("/run/user")
+    // 1. ログイン中の一般ユーザー (UID >= 1000) を自動特定
+    let uid: u32 = fs::read_dir("/run/user")
         .ok()
         .and_then(|entries| {
             entries
                 .flatten()
                 .filter_map(|entry| entry.file_name().into_string().ok())
-                .find(|name| name.chars().all(|c| c.is_numeric()))
+                .filter_map(|name| name.parse::<u32>().ok())
+                .find(|&id| id >= 1000) // root(0)やシステムUIDを弾き、一般ユーザーを探す
         })
-        .unwrap_or_else(|| "1000".to_string());
+        .unwrap_or(1000);
 
-    // 2. 通知の実行
-    // wrapProgram によって PATH は通っているので、notify-send を直接呼ぶ。
-    // ただし、sudo は PATH をリセットするため、env コマンドで現在の PATH を明示的に渡す。
-    let current_path = env::var("PATH").unwrap_or_default();
+    // 2. rootで実行されている場合、対象ユーザーへ権限降格 (Drop Privileges)
+    // D-Bus は UID が一致しないプロセスからの接続を拒絶するため
+    unsafe {
+        let _ = setgid(uid);
+        let _ = setuid(uid);
+    }
 
-    let status = Command::new("/run/wrappers/bin/sudo")
-        .args([
-            "-u",
-            "teto",
-            "env",
-            &format!("PATH={}", current_path), // ここが重要！Nixが用意したPATHをsudo先に持ち込む
-            &format!("DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{}/bus", uid),
-            &format!("XDG_RUNTIME_DIR=/run/user/{}", uid),
-            "DISPLAY=:0",
-            "notify-send", // フルパスではなくコマンド名だけでOK
-            "--icon=drive-removable-media-symbolic",
-            "USB Storage Detected",
-            &format!("Device: /dev/{}", dev_name),
-        ])
-        .status();
+    // 3. 対象ユーザーの D-Bus セッションバスを指定
+    let bus_path = format!("unix:path=/run/user/{}/bus", uid);
+    unsafe {
+        env::set_var("DBUS_SESSION_BUS_ADDRESS", &bus_path);
+        env::set_var("XDG_RUNTIME_DIR", format!("/run/user/{}", uid));
+    }
 
-    if let Err(e) = status {
-        eprintln!("Failed to execute sudo: {}", e);
+    // 4. notify-rust で D-Bus 経由で直接通知を送信 (sudo も notify-send も不要)
+    let res = Notification::new()
+        .appname("Storage Monitor")
+        .summary("USB Storage Detected")
+        .body(&format!("Device: /dev/{}", dev_name))
+        .icon("drive-removable-media-symbolic")
+        .timeout(Duration::from_secs(5))
+        .show();
+
+    if let Err(e) = res {
+        eprintln!("Failed to send notification via D-Bus: {}", e);
     }
 }
