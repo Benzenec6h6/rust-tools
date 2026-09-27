@@ -1,4 +1,5 @@
 use fs2::FileExt;
+use notify_rust::{Hint, Notification};
 use std::env;
 use std::error::Error;
 use std::fs::File;
@@ -7,25 +8,14 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-const COOL_DOWN_MS: u64 = 60; // チャタリングを弾くウェイト時間（ミリ秒）
+// 誤爆や連続キー入力を弾くウェイト
+const COOL_DOWN_MS: u64 = 100;
 
-// ====================================================================
-// 💡 共通ヘルパー: ファイルロック (超高速ブレーキ)
-// ====================================================================
 fn try_lock_process(name: &str) -> Option<File> {
-    // XDG_RUNTIME_DIR (/run/user/1000等) を取得、なければ /tmp
     let runtime_dir = env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-
     let lock_path = format!("{}/{}.lock", runtime_dir, name);
 
-    // デバッグ用に失敗した時に理由がわかるようにすると学習が捗ります
-    let file = File::create(&lock_path)
-        .map_err(|e| {
-            eprintln!("Failed to create lock file {}: {}", lock_path, e);
-            e
-        })
-        .ok()?;
-
+    let file = File::create(&lock_path).ok()?;
     if file.try_lock_exclusive().is_err() {
         return None;
     }
@@ -33,239 +23,194 @@ fn try_lock_process(name: &str) -> Option<File> {
 }
 
 fn run_cmd(program: &str, args: &[&str]) -> String {
-    let output = Command::new(program).args(args).output();
-    match output {
-        Ok(out) => {
-            if !out.status.success() {
-                // コマンドがエラー（権限不足など）を返した場合
-                let err_msg = String::from_utf8_lossy(&out.stderr);
-                eprintln!("Command '{}' failed: {}", program, err_msg);
-            }
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        }
-        Err(e) => {
-            // そもそもコマンドが見つからない場合
-            eprintln!("Failed to execute '{}': {}", program, e);
-            String::new()
-        }
-    }
+    Command::new(program)
+        .args(args)
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+/// D-Bus経由で直接通知を送信（外部プロセス不要）
+fn send_osd_notification(id: u32, icon: &str, title: &str, val: u32, tag: &str) {
+    let _ = Notification::new()
+        .appname("System")
+        .id(id)
+        .icon(icon)
+        .summary(title)
+        .hint(Hint::Custom(
+            "x-canonical-private-synchronous".into(),
+            tag.into(),
+        ))
+        .hint(Hint::CustomInt("value".into(), val as i32))
+        .hint(Hint::Urgency(notify_rust::Urgency::Low))
+        .timeout(Duration::from_millis(1000))
+        .show();
 }
 
 // ====================================================================
-// ☀️ 輝度（Brightness）セクション
+// ☀️ 輝度（Brightness）
 // ====================================================================
-fn get_brightness() -> String {
+fn get_brightness() -> u32 {
     let out = run_cmd("brightnessctl", &["-m"]);
-    if out.is_empty() {
-        return "N/A".to_string(); // エラーがわかりやすいようにする
-    }
-
-    // 最初の1行を取り出し、カンマで分割
     out.lines()
         .next()
-        .and_then(|line| line.split(',').nth(3)) // 4番目の要素(50%)を取得
-        .map(|s| s.replace('%', "")) // %を消す
-        .unwrap_or_else(|| "0".to_string()) // ダメなら"0"
-}
-
-fn send_brightness_notif() {
-    let b = get_brightness();
-    let _ = Command::new("notify-send")
-        .args([
-            "-a",
-            "System",
-            "-t",
-            "1000",
-            "-r",
-            "999",
-            "--icon",
-            "display-brightness-high-symbolic",
-            "-h",
-            &format!("int:value:{}", b),
-            "-h",
-            "string:x-canonical-private-synchronous:brightness_notif",
-            "-u",
-            "low",
-            "Brightness",
-            &format!("{}%", b),
-        ])
-        .output();
+        .and_then(|line| line.split(',').nth(3))
+        .and_then(|s| s.replace('%', "").parse::<u32>().ok())
+        .unwrap_or(0)
 }
 
 fn handle_brightness(arg: &str) {
-    if let Some(_lock) = try_lock_process("brightness") {
-        match arg {
-            "--inc" => {
-                let _ = Command::new("brightnessctl").args(["set", "5%+"]).output();
-                send_brightness_notif();
-            }
-            "--dec" => {
-                let _ = Command::new("brightnessctl")
-                    .args(["set", "5%-", "--min-value=1"])
-                    .output();
-                send_brightness_notif();
-            }
-            "--inc-fine" => {
-                let _ = Command::new("brightnessctl").args(["set", "1%+"]).output();
-                send_brightness_notif();
-            }
-            "--dec-fine" => {
-                let _ = Command::new("brightnessctl")
-                    .args(["set", "1%-", "--min-value=1"])
-                    .output();
-                send_brightness_notif();
-            }
-            "--get" => println!("{}", get_brightness()),
-            _ => {}
+    let Some(_lock) = try_lock_process("brightness") else {
+        return;
+    };
+
+    match arg {
+        "--inc" => {
+            let _ = Command::new("brightnessctl").args(["set", "5%+"]).output();
         }
-        thread::sleep(Duration::from_millis(COOL_DOWN_MS));
+        "--dec" => {
+            let _ = Command::new("brightnessctl")
+                .args(["set", "5%-", "--min-value=1"])
+                .output();
+        }
+        "--inc-fine" => {
+            let _ = Command::new("brightnessctl").args(["set", "1%+"]).output();
+        }
+        "--dec-fine" => {
+            let _ = Command::new("brightnessctl")
+                .args(["set", "1%-", "--min-value=1"])
+                .output();
+        }
+        "--get" => {
+            println!("{}", get_brightness());
+            return;
+        }
+        _ => return,
     }
+
+    let b = get_brightness();
+    send_osd_notification(
+        999,
+        "display-brightness-high-symbolic",
+        &format!("Brightness: {}%", b),
+        b,
+        "brightness_notif",
+    );
+    thread::sleep(Duration::from_millis(COOL_DOWN_MS));
 }
 
 // ====================================================================
-// 🔊 音量・マイク（Volume）セクション
+// 🔊 音量・マイク（Volume）
 // ====================================================================
-fn is_headphones_connected() -> bool {
-    let out = run_cmd("wpctl", &["status"]);
-    for line in out.lines() {
-        if line.contains("[*]") && line.to_lowercase().contains("headphone") {
-            return true;
-        }
-    }
-    false
+fn is_headphones(target: &str) -> bool {
+    let out = run_cmd("wpctl", &["inspect", target]).to_lowercase();
+    out.contains("headphone") || out.contains("headset")
 }
 
 fn handle_volume(arg: &str) {
-    if let Some(_lock) = try_lock_process("volume") {
-        let is_mic = arg.contains("mic");
+    let Some(_lock) = try_lock_process("volume") else {
+        return;
+    };
 
-        // 操作対象の決定
-        let target = if is_mic {
-            "@DEFAULT_AUDIO_SOURCE@"
-        } else {
-            "@DEFAULT_AUDIO_SINK@"
-        };
+    let is_mic = arg.contains("mic");
+    let target = if is_mic {
+        "@DEFAULT_AUDIO_SOURCE@"
+    } else {
+        "@DEFAULT_AUDIO_SINK@"
+    };
 
-        // 共通のコマンド実行ヘルパー
-        let wpctl_set = |args: &[&str]| {
-            let mut final_args = vec![];
-            final_args.extend_from_slice(args);
-            run_cmd("wpctl", &final_args);
-        };
-
-        // 1. 音量・ミュートの変更アクションの実行
-        match arg {
-            "--toggle" | "--toggle-mic" => {
-                wpctl_set(&["set-mute", target, "toggle"]);
-            }
-            "--inc" | "--mic-inc" => {
-                wpctl_set(&["set-mute", target, "0"]); // ミュート解除
-                wpctl_set(&["set-volume", "-l", "1.5", target, "0.05+"]); // --allow-boost の代わりに -l 1.5 (150%上限)
-            }
-            "--dec" | "--mic-dec" => {
-                wpctl_set(&["set-mute", target, "0"]);
-                wpctl_set(&["set-volume", target, "0.05-"]);
-            }
-            "--inc-fine" | "--mic-inc-fine" => {
-                wpctl_set(&["set-mute", target, "0"]);
-                wpctl_set(&["set-volume", "-l", "1.5", target, "0.01+"]);
-            }
-            "--dec-fine" | "--mic-dec-fine" => {
-                wpctl_set(&["set-mute", target, "0"]);
-                wpctl_set(&["set-volume", target, "0.01-"]);
-            }
-            _ => {}
+    // 1. コマンド処理
+    match arg {
+        "--toggle" | "--toggle-mic" => {
+            let _ = Command::new("wpctl")
+                .args(["set-mute", target, "toggle"])
+                .status();
         }
-
-        // 2. 現在の状態を取得 (パース処理)
-        // wpctl get-volume の出力例: "Volume: 0.40" または "Volume: 0.20 [MUTED]"
-        let raw_status = run_cmd("wpctl", &["get-volume", target]);
-
-        if arg == "--get" || arg == "--get-mic" {
-            // --get 要求時は純粋な数値（%）だけを標準出力して終了
-            let vol_str = raw_status.split_whitespace().nth(1).unwrap_or("0.00");
-            if let Ok(vol_f) = vol_str.parse::<f32>() {
-                println!("{:.0}", vol_f * 100.0);
-            } else {
-                println!("0");
+        "--inc" | "--mic-inc" => {
+            // ミュート中なら解除
+            let raw = run_cmd("wpctl", &["get-volume", target]);
+            if raw.contains("[MUTED]") {
+                let _ = Command::new("wpctl")
+                    .args(["set-mute", target, "0"])
+                    .status();
             }
-            return;
+            let _ = Command::new("wpctl")
+                .args(["set-volume", "-l", "1.0", target, "0.05+"])
+                .status();
         }
-
-        let muted = raw_status.contains("[MUTED]");
-
-        // 文字列から音量（%）を計算
-        let vol = {
-            let vol_str = raw_status.split_whitespace().nth(1).unwrap_or("0.00");
-            if let Ok(vol_f) = vol_str.parse::<f32>() {
-                format!("{:.0}", vol_f * 100.0)
-            } else {
-                "0".to_string()
+        "--dec" | "--mic-dec" => {
+            let _ = Command::new("wpctl")
+                .args(["set-volume", target, "0.05-"])
+                .status();
+        }
+        "--inc-fine" | "--mic-inc-fine" => {
+            let raw = run_cmd("wpctl", &["get-volume", target]);
+            if raw.contains("[MUTED]") {
+                let _ = Command::new("wpctl")
+                    .args(["set-mute", target, "0"])
+                    .status();
             }
-        };
-
-        // 3. 通知用アイコン・ラベルの生成 (既存のロジックを流用)
-        let (icon, label, id, sync_key) = if !is_mic {
-            let icon = if muted {
-                if is_headphones_connected() {
-                    "audio-volume-muted-headphones-symbolic"
-                } else {
-                    "audio-volume-muted-symbolic"
-                }
-            } else {
-                if is_headphones_connected() {
-                    "audio-volume-headphones-symbolic"
-                } else {
-                    "audio-volume-high-symbolic"
-                }
-            };
-            let label = if muted || vol == "0" {
-                "Volume: Muted".to_string()
-            } else {
-                format!("Volume: {}%", vol)
-            };
-            (icon, label, "998", "volume_notif")
-        } else {
-            let icon = if muted {
-                "audio-input-microphone-muted-symbolic"
-            } else {
-                "audio-input-microphone-high-symbolic"
-            };
-            let label = if muted || vol == "0" {
-                "Microphone: Muted".to_string()
-            } else {
-                format!("Microphone: {}%", vol)
-            };
-            (icon, label, "997", "mic_notif")
-        };
-
-        let disp_vol = if muted { "0" } else { &vol };
-        let _ = Command::new("notify-send")
-            .args([
-                "-e",
-                "-a",
-                "System",
-                "-r",
-                id,
-                "-h",
-                &format!("string:x-canonical-private-synchronous:{}", sync_key),
-                "-h",
-                &format!("int:value:{}", disp_vol),
-                "-u",
-                "low",
-                "--icon",
-                icon,
-                &label,
-            ])
-            .status();
-
-        thread::sleep(Duration::from_millis(COOL_DOWN_MS));
+            let _ = Command::new("wpctl")
+                .args(["set-volume", "-l", "1.0", target, "0.01+"])
+                .status();
+        }
+        "--dec-fine" | "--mic-dec-fine" => {
+            let _ = Command::new("wpctl")
+                .args(["set-volume", target, "0.01-"])
+                .status();
+        }
+        _ => {}
     }
+
+    // 2. 現在値の取得
+    let raw_status = run_cmd("wpctl", &["get-volume", target]);
+    let mut parts = raw_status.split_whitespace();
+    let vol_f: f32 = parts.nth(1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+    let vol_val = (vol_f * 100.0).round() as u32;
+    let muted = raw_status.contains("[MUTED]");
+
+    if arg == "--get" || arg == "--get-mic" {
+        println!("{}", vol_val);
+        return;
+    }
+
+    // 3. アイコン・ラベル判定
+    let (icon, label, id, tag) = if !is_mic {
+        let is_hp = is_headphones(target);
+        let icon = match (muted, is_hp) {
+            (true, true) => "audio-volume-muted-headphones-symbolic",
+            (true, false) => "audio-volume-muted-symbolic",
+            (false, true) => "audio-volume-headphones-symbolic",
+            (false, false) => "audio-volume-high-symbolic",
+        };
+        let label = if muted || vol_val == 0 {
+            "Volume: Muted".into()
+        } else {
+            format!("Volume: {}%", vol_val)
+        };
+        (icon, label, 998, "volume_notif")
+    } else {
+        let icon = if muted {
+            "audio-input-microphone-muted-symbolic"
+        } else {
+            "audio-input-microphone-high-symbolic"
+        };
+        let label = if muted || vol_val == 0 {
+            "Microphone: Muted".into()
+        } else {
+            format!("Microphone: {}%", vol_val)
+        };
+        (icon, label, 997, "mic_notif")
+    };
+
+    let disp_val = if muted { 0 } else { vol_val };
+
+    // 4. D-Bus 経由で即座に通知
+    send_osd_notification(id, icon, &label, disp_val, tag);
+
+    thread::sleep(Duration::from_millis(COOL_DOWN_MS));
 }
 
-// ====================================================================
-// 🚀 エントリポイント
-// ====================================================================
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -273,17 +218,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         std::process::exit(1);
     }
 
-    // 💡 修正：current_exe() を使わず、args[0]（実行されたコマンド名）からファイル名を切り出す
     let exe_path = Path::new(&args[0]);
     let exe_name = exe_path.file_name().unwrap().to_string_lossy();
 
-    // デバッグ時に判定しやすいよう、条件を明確にします
     if exe_name.contains("volume") {
         handle_volume(&args[1]);
     } else if exe_name.contains("brightness") {
         handle_brightness(&args[1]);
     } else {
-        // 万が一 sys-controls のまま叩かれた場合のヘルプ
         eprintln!("Error: Please run this via a symlink named 'volume' or 'brightness'.");
         std::process::exit(1);
     }

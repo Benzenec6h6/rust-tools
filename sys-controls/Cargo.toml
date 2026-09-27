@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 # OSレベルの超高速ファイルロックに使用
 fs2 = "0.4"
+notify-rust = "4.18.0"

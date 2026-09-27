@@ -18,7 +18,6 @@
       runtimeLibs = with pkgs; [
         dbus
         openssl
-        libnotify
       ];
 
       buildDeps = with pkgs; [
